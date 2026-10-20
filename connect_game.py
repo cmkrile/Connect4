@@ -1,15 +1,11 @@
 import random
-
 class ConnectGame:
-    # Constructor
     def __init__(self, n, m, k):
         self.board = self.initialize(m, n)
         self.size = m, n
         self.turn = 1
         self.k = k
-        self.depth = 5  # AI search depth — raise for harder AI, lower for faster response
 
-    # Creates/initializes board in size m,n
     def initialize(self, m, n):
         self.size = m, n
         my_board = []
@@ -21,7 +17,6 @@ class ConnectGame:
         return my_board
 
     def convert(self, entry):
-        # convert integer values 1 and -1 into 'X' and 'O' respectively
         if entry == 1:
             return 'X'
         elif entry == -1:
@@ -30,7 +25,6 @@ class ConnectGame:
             return '-'
 
     def render(self):
-        # renders a board on the terminal using X, O and -
         m, n = self.size
         print(" ", end=" ")
         for i in range(n):
@@ -42,7 +36,6 @@ class ConnectGame:
                 print(self.board[i][j], end=" ")
             print()
 
-    # Gets the left to right diagonal
     def get_diagonal(self, row, col):
         lst = []
         m, n = self.size
@@ -53,7 +46,6 @@ class ConnectGame:
                     lst.append(self.board[i][j])
         return lst
 
-    # Gets the right to left diagonal
     def reverse_diagonal(self, row, col):
         lst = []
         m, n = self.size
@@ -64,21 +56,19 @@ class ConnectGame:
                     lst.append(self.board[i][j])
         return lst
 
-    # Gets horizontal row
     def get_horizontal(self, row):
         return self.board[row]
 
-    # Gets vertical column
     def get_vertical(self, col):
         lst = []
         for row in self.board:
             lst.append(row[col])
         return lst
 
-    def connected(self, lst):
+    def connected(self, lst, symbol):
         count = 0
         for item in lst:
-            if item == self.convert(self.turn):
+            if item == symbol:
                 count += 1
                 if count == self.k:
                     return True
@@ -86,36 +76,6 @@ class ConnectGame:
                 count = 0
         return False
 
-    # Check win for a specific symbol string X or O
-    def check_win_for(self, symbol):
-        rows, cols = self.size
-        original_turn = self.turn
-        self.turn = 1 if symbol == 'X' else -1
-
-        result = False
-        for row in range(rows):
-            if self.connected(self.get_horizontal(row)):
-                result = True
-                break
-        if not result:
-            for col in range(cols):
-                if self.connected(self.get_vertical(col)):
-                    result = True
-                    break
-        if not result:
-            for row in range(rows):
-                for col in range(cols):
-                    if self.connected(self.get_diagonal(row, col)) or \
-                       self.connected(self.reverse_diagonal(row, col)):
-                        result = True
-                        break
-                if result:
-                    break
-
-        self.turn = original_turn
-        return result
-
-    # Goes through entire board and returns a list of all possible moves in (x,y)
     def possible_moves(self, lst):
         moves = []
         for i, row in enumerate(lst):
@@ -124,16 +84,6 @@ class ConnectGame:
                     moves.append([i, j])
         return moves
 
-    # Returns valid column indices the AI/player can drop into
-    def valid_columns(self):
-        rows, cols = self.size
-        valid = []
-        for col in range(cols):
-            if self.board[0][col] == '-':
-                valid.append(col)
-        return valid
-
-    # Takes in column and symbol, drops piece to lowest open row
     def make_move(self, col, symbol):
         for row in reversed(self.board):
             if row[col] == '-':
@@ -141,200 +91,198 @@ class ConnectGame:
                 return True
         return False
 
-    # Undo a move in a column
-    def undo_move(self, col):
-        for row in self.board:
-            if row[col] != '-':
-                row[col] = '-'
-                return
-
-    # Randomly chooses column from valid columns
     def random_move(self):
-        valid = self.valid_columns()
-        if valid:
-            col = random.choice(valid)
-            self.make_move(col, 'O')
+        open_spot = self.possible_moves(self.board)
+        if open_spot:
+            choice = random.choice(open_spot)
+            self.make_move(choice[1], 'O')
 
-    # Scoring heuristic: evaluate a window of k cells for a given symbol
-    def score_window(self, window, symbol, opp_symbol):
+    COMPUTER = 'O'
+    HUMAN = 'X'
+    WIN_SCORE = 1000000
+    SEARCH_DEPTH = 7
+
+    def valid_columns(self):
+        _, cols = self.size
+        order = sorted(range(cols), key=lambda c: abs(c - (cols - 1) / 2))
+        return [c for c in order if self.board[0][c] == '-']
+
+    def drop(self, col, symbol):
+        for r in range(self.size[0] - 1, -1, -1):
+            if self.board[r][col] == '-':
+                self.board[r][col] = symbol
+                return r
+        return None
+
+    def undo(self, row, col):
+        self.board[row][col] = '-'
+
+    def wins_at(self, row, col, symbol):
+        m, n = self.size
+        for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            count = 1
+            for sign in (1, -1):
+                r, c = row + sign * dr, col + sign * dc
+                while 0 <= r < m and 0 <= c < n and self.board[r][c] == symbol:
+                    count += 1
+                    r += sign * dr
+                    c += sign * dc
+            if count >= self.k:
+                return True
+        return False
+
+    def evaluate(self):
+        m, n = self.size
+        k = self.k
         score = 0
-        count = window.count(symbol)
-        empty = window.count('-')
-        opp_count = window.count(opp_symbol)
-        if count == self.k:
-            score += 100000         
-        elif count == self.k - 1 and empty == 1:
-            score += 50              
-        elif count == self.k - 2 and empty == 2:
-            score += 10              
-
-        if opp_count == self.k - 1 and empty == 1:
-            score -= 80              
+        center = n // 2
+        for r in range(m):
+            if self.board[r][center] == self.COMPUTER:
+                score += 3
+            elif self.board[r][center] == self.HUMAN:
+                score -= 3
+        for r in range(m):
+            for c in range(n):
+                for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+                    er, ec = r + (k - 1) * dr, c + (k - 1) * dc
+                    if not (0 <= er < m and 0 <= ec < n):
+                        continue
+                    window = [self.board[r + i * dr][c + i * dc] for i in range(k)]
+                    mine = window.count(self.COMPUTER)
+                    theirs = window.count(self.HUMAN)
+                    empty = window.count('-')
+                    if mine and theirs:
+                        continue
+                    if mine == k - 1 and empty == 1:
+                        score += 50
+                    elif mine == k - 2 and empty == 2:
+                        score += 5
+                    if theirs == k - 1 and empty == 1:
+                        score -= 80
+                    elif theirs == k - 2 and empty == 2:
+                        score -= 5
         return score
 
-    # Board evaluation heuristic used by Minimax
-    def evaluate_board(self):
-        rows, cols = self.size
-        ai_sym  = 'O'
-        hum_sym = 'X'
-        score   = 0
-        centre_col = cols // 2
-        centre = [self.board[r][centre_col] for r in range(rows)]
-        score += centre.count(ai_sym) * 6
-
-        for r in range(rows):
-            for c in range(cols - self.k + 1):
-                window = [self.board[r][c + i] for i in range(self.k)]
-                score += self.score_window(window, ai_sym, hum_sym)
-        for c in range(cols):
-            for r in range(rows - self.k + 1):
-                window = [self.board[r + i][c] for i in range(self.k)]
-                score += self.score_window(window, ai_sym, hum_sym)
-        for r in range(rows - self.k + 1):
-            for c in range(cols - self.k + 1):
-                window = [self.board[r + i][c + i] for i in range(self.k)]
-                score += self.score_window(window, ai_sym, hum_sym)
-        for r in range(self.k - 1, rows):
-            for c in range(cols - self.k + 1):
-                window = [self.board[r - i][c + i] for i in range(self.k)]
-                score += self.score_window(window, ai_sym, hum_sym)
-
-        return score
-
-    # Minimax — returns the best (col, score) for the current player.
-        if self.check_win_for('O'):
-            return (None, 100000 + depth)   # AI wins
-        if self.check_win_for('X'):
-            return (None, -(100000 + depth)) # Human wins
-        valid = self.valid_columns()
-        if not valid or depth == 0:
-            return (None, self.evaluate_board())
+    def miniMax(self, depth, maximizing, last=None):
+        if last is not None and self.wins_at(last[0], last[1], last[2]):
+            if last[2] == self.COMPUTER:
+                return self.WIN_SCORE + depth
+            return -self.WIN_SCORE - depth
+        cols = self.valid_columns()
+        if not cols:
+            return 0
+        if depth == 0:
+            return self.evaluate()
 
         if maximizing:
-            best_score = float('-inf')
-            best_col   = random.choice(valid)
-            for col in valid:
-                self.make_move(col, 'O')
-                _, score = self.miniMax(depth - 1, False)
-                self.undo_move(col)
-                if score > best_score:
-                    best_score = score
-                    best_col   = col
-            return (best_col, best_score)
+            best = float('-inf')
+            for col in cols:
+                row = self.drop(col, self.COMPUTER)
+                best = max(best, self.miniMax(depth - 1, False, (row, col, self.COMPUTER)))
+                self.undo(row, col)
+            return best
         else:
-            best_score = float('inf')
-            best_col   = random.choice(valid)
-            for col in valid:
-                self.make_move(col, 'X')
-                _, score = self.miniMax(depth - 1, True)
-                self.undo_move(col)
-                if score < best_score:
-                    best_score = score
-                    best_col   = col
-            return (best_col, best_score)
+            best = float('inf')
+            for col in cols:
+                row = self.drop(col, self.HUMAN)
+                best = min(best, self.miniMax(depth - 1, True, (row, col, self.HUMAN)))
+                self.undo(row, col)
+            return best
 
-    # Alpha-Beta Pruning — same as Minimax but prunes branches that
-    def alphaBetaPruning(self, depth, alpha, beta, maximizing):
-        if self.check_win_for('O'):
-            return (None, 100000 + depth)
-        if self.check_win_for('X'):
-            return (None, -(100000 + depth))
-        valid = self.valid_columns()
-        if not valid or depth == 0:
-            return (None, self.evaluate_board())
+    def alphaBetaPruning(self, depth, alpha, beta, maximizing, last=None):
+        if last is not None and self.wins_at(last[0], last[1], last[2]):
+            if last[2] == self.COMPUTER:
+                return self.WIN_SCORE + depth
+            return -self.WIN_SCORE - depth
+        cols = self.valid_columns()
+        if not cols:
+            return 0
+        if depth == 0:
+            return self.evaluate()
+
         if maximizing:
-            best_score = float('-inf')
-            best_col   = random.choice(valid)
-            for col in valid:
-                self.make_move(col, 'O')
-                _, score = self.alphaBetaPruning(depth - 1, alpha, beta, False)
-                self.undo_move(col)
-                if score > best_score:
-                    best_score = score
-                    best_col   = col
-                alpha = max(alpha, best_score)
+            best = float('-inf')
+            for col in cols:
+                row = self.drop(col, self.COMPUTER)
+                best = max(best, self.alphaBetaPruning(depth - 1, alpha, beta, False, (row, col, self.COMPUTER)))
+                self.undo(row, col)
+                alpha = max(alpha, best)
                 if alpha >= beta:
                     break
-            return (best_col, best_score)
+            return best
         else:
-            best_score = float('inf')
-            best_col   = random.choice(valid)
-            for col in valid:
-                self.make_move(col, 'X')
-                _, score = self.alphaBetaPruning(depth - 1, alpha, beta, True)
-                self.undo_move(col)
-                if score < best_score:
-                    best_score = score
-                    best_col   = col
-                beta = min(beta, best_score)
+            best = float('inf')
+            for col in cols:
+                row = self.drop(col, self.HUMAN)
+                best = min(best, self.alphaBetaPruning(depth - 1, alpha, beta, True, (row, col, self.HUMAN)))
+                self.undo(row, col)
+                beta = min(beta, best)
                 if alpha >= beta:
-                    break  # Alpha cut-off — maximiser would never allow this branch
-            return (best_col, best_score)
+                    break
+            return best
 
-    # Use Alpha-Beta to pick and execute the AI's move
-    def computer_move(self):
-        col, score = self.alphaBetaPruning(self.depth, float('-inf'), float('inf'), True)
-        if col is not None:
-            self.make_move(col, 'O')
+    def computer_move(self, depth=None):
+        if depth is None:
+            depth = self.SEARCH_DEPTH
+        best_score = float('-inf')
+        best_col = None
+        for col in self.valid_columns():
+            row = self.drop(col, self.COMPUTER)
+            score = self.alphaBetaPruning(depth - 1, float('-inf'), float('inf'),
+                                          False, (row, col, self.COMPUTER))
+            self.undo(row, col)
+            if score > best_score:
+                best_score = score
+                best_col = col
+        if best_col is not None:
+            self.make_move(best_col, self.COMPUTER)
 
-    # Checks horizontal/vertical/both diagonal win conditions
     def check_win(self, symbol):
         rows, cols = self.size
-        original_turn = self.turn
-        self.turn = 1 if symbol == 'X' else -1
-        result = False
         for row in range(rows):
-            if self.connected(self.get_horizontal(row)):
-                result = True
-                break
-        if not result:
+            if self.connected(self.get_horizontal(row), symbol):
+                return True
+        for col in range(cols):
+            if self.connected(self.get_vertical(col), symbol):
+                return True
+        for row in range(rows):
             for col in range(cols):
-                if self.connected(self.get_vertical(col)):
-                    result = True
-                    break
-        if not result:
-            for row in range(rows):
-                for col in range(cols):
-                    if self.connected(self.get_diagonal(row, col)) or \
-                       self.connected(self.reverse_diagonal(row, col)):
-                        result = True
-                        break
-                if result:
-                    break
-        self.turn = original_turn
-        return result
+                if self.connected(self.get_diagonal(row, col), symbol) or self.connected(self.reverse_diagonal(row, col), symbol):
+                    return True
+        return False
 
     def play(self):
         rows, cols = self.size
         self.board = self.initialize(rows, cols)
         self.render()
-        move_counter = 0
-        while True:
-            available_moves = self.valid_columns()
-            if not available_moves:
-                print("It's a draw!")
-                break
+        move_counter = random.choice([0, 1])
+        available_moves = 42
+        while ((self.check_win('X') == False) and (self.check_win('O') == False) and available_moves != 0):
             if move_counter % 2 == 0:
-                print("Your Turn (X)")
+                print('Your Turn')
                 try:
-                    col = int(input(f"Enter column (0-{cols - 1}): "))
+                    col = int(input("Enter the column 0-6: "))
                 except ValueError:
-                    print("Please enter a number.")
+                    print("Invalid Move")
                     continue
-                if col < 0 or col >= cols or col not in available_moves:
-                    print("Invalid move — column is full or out of range.")
-                    continue
-                self.make_move(col, 'X')
-                move_counter += 1
+                if (col >= 0 and col < 7) and self.make_move(col, 'X'):
+                    move_counter += 1
+                    available_moves -= 1
+                else:
+                    print("Invalid Move")
                 self.render()
-                if self.check_win('X'):
-                    print("You win!")
-                    break
             else:
-                print("Computer's move (O)...")
+                print("Computer's move:")
                 self.computer_move()
                 move_counter += 1
+                available_moves -= 1
                 self.render()
-                if self.check_win('O'):
-                    print("Computer wins!")
-                    break
+            if self.check_win('X'):
+                print("You win!")
+                break
+            if self.check_win('O'):
+                print("Computer wins!")
+                break
+            if available_moves == 0:
+                print('Its a draw')
+                break
